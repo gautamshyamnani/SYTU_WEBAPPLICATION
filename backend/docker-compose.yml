@@ -1,0 +1,86 @@
+# ─── docker-compose.yml — auth-backend ────────────────────────────────────────
+#
+# Brings up the full stack locally: backend API + MongoDB + Redis.
+#
+# Usage:
+#   1. cp .env.example .env   (then fill in real secrets)
+#   2. docker compose up --build
+#   3. API available at http://localhost:5000
+#      Swagger UI at   http://localhost:5000/api/docs
+#
+# Notes:
+#   - Inside the Docker network, services reach each other by service name
+#     (e.g. `mongo`, `redis`), NOT `localhost`. MONGO_URI / REDIS_HOST below
+#     override whatever's in .env so the container talks to the compose
+#     network correctly even if your .env still has localhost values for
+#     running the app outside Docker.
+#   - mongo-data / redis-data are named volumes — your data survives
+#     `docker compose down` (but not `docker compose down -v`).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auth-backend
+    restart: unless-stopped
+    ports:
+      - '${PORT:-5000}:5000'
+    env_file:
+      - .env
+    environment:
+      # Override host-based values from .env so the container always talks
+      # to the other containers by service name, regardless of .env content.
+      - MONGO_URI=mongodb://mongo:27017/auth_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=5000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - auth-backend-net
+
+  mongo:
+    image: mongo:7
+    container_name: auth-backend-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - auth-backend-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: auth-backend-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - auth-backend-net
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  auth-backend-net:
+    driver: bridge

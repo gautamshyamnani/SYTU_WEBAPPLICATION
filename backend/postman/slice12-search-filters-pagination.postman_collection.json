@@ -1,0 +1,232 @@
+{
+  "info": {
+    "name": "Slice 12 — Search + Filters + Pagination",
+    "_postman_id": "slice12-search-filters-pagination",
+    "description": "Tests for GET /api/users/search.\n\nPRE-REQUISITE:\n  - Set collection variable `baseUrl` to http://localhost:5000\n  - Set collection variable `accessToken` from a login response\n\nNote: the endpoint is also reachable at /api/user/search (singular) — both\nroutes point at the same controller. Use whichever matches your client.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "accessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "🔍 Basic Search",
+      "item": [
+        {
+          "name": "Search by username/skills (q)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?q=java&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [
+                { "key": "q", "value": "java" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "Partial, case-insensitive match against username OR skills.\n'java' will match a username like 'javadev' and a skill like 'JavaScript'."
+          }
+        },
+        {
+          "name": "Browse all users (no q — pagination only)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "All query params are optional — calling with none returns a paginated, alphabetical-by-username list of every other user."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🧰 Filters",
+      "item": [
+        {
+          "name": "Filter by location",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?location=jaipur",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "location", "value": "jaipur" }]
+            },
+            "description": "Partial, case-insensitive match — 'jaipur' matches a stored location of 'Jaipur, Rajasthan'."
+          }
+        },
+        {
+          "name": "Filter by skills (exact, multiple)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?skills=react,node",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "skills", "value": "react,node" }]
+            },
+            "description": "Comma-separated or repeated (?skills=react&skills=node). Matches users who have ANY of the listed skills (exact name, case-insensitive)."
+          }
+        },
+        {
+          "name": "Filter by profile completeness",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?isProfileComplete=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "isProfileComplete", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "Combine all filters together",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?q=dev&location=jaipur&skills=react&isProfileComplete=true&page=1&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [
+                { "key": "q", "value": "dev" },
+                { "key": "location", "value": "jaipur" },
+                { "key": "skills", "value": "react" },
+                { "key": "isProfileComplete", "value": "true" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "5" }
+              ]
+            },
+            "description": "All filters are AND'd together."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🏆 Match Score Filter",
+      "item": [
+        {
+          "name": "Filter by minMatchScore",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?minMatchScore=10&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [
+                { "key": "minMatchScore", "value": "10" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            },
+            "description": "matchScore is computed relative to the logged-in user (shared skills, location, profile completeness — see utils/matchScore.js). Because it isn't a stored field, this path scores a bounded candidate set in memory rather than paginating natively in Mongo. Response includes truncated:true if the internal candidate cap was hit."
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚠️ Edge Cases",
+      "item": [
+        {
+          "name": "No results (expect empty array, total 0)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?q=zzz_no_such_user_zzz",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "q", "value": "zzz_no_such_user_zzz" }]
+            }
+          }
+        },
+        {
+          "name": "Invalid minMatchScore (expect 400)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?minMatchScore=notanumber",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "minMatchScore", "value": "notanumber" }]
+            }
+          }
+        },
+        {
+          "name": "Garbage page/limit (expect defaults, not an error)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?page=abc&limit=-5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [
+                { "key": "page", "value": "abc" },
+                { "key": "limit", "value": "-5" }
+              ]
+            },
+            "description": "page falls back to 1, limit falls back to 10 — same lenient-defaulting convention as the existing notifications endpoint."
+          }
+        },
+        {
+          "name": "limit above max (expect clamp to 50)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?limit=10000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "limit", "value": "10000" }]
+            }
+          }
+        },
+        {
+          "name": "No token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?q=test",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "q", "value": "test" }]
+            }
+          }
+        },
+        {
+          "name": "Rate limit exceeded (expect 429 after 30 req per min)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search?q=test",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "search"],
+              "query": [{ "key": "q", "value": "test" }]
+            },
+            "description": "Run this request 31+ times within 60 seconds (e.g. via Postman Runner) to trigger the 429."
+          }
+        }
+      ]
+    }
+  ]
+}

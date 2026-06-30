@@ -1,0 +1,187 @@
+{
+  "info": {
+    "name": "Slice 11 — Notifications System",
+    "_postman_id": "slice11-notifications",
+    "description": "Tests for the in-app notification system.\n\nPRE-REQUISITE:\n  - Set collection variable `baseUrl` to http://localhost:5000\n  - Set collection variable `accessToken` from a login response\n  - Set collection variable `notificationId` after fetching notifications",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "notificationId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "📋 Get Notifications",
+      "item": [
+        {
+          "name": "Get All Notifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications"],
+              "query": [
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Returns paginated notifications for the logged-in user.\nResponse includes `unreadCount` for badge display."
+          }
+        },
+        {
+          "name": "Get Unread Notifications Only",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications?unreadOnly=true&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications"],
+              "query": [
+                { "key": "unreadOnly", "value": "true" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "✅ Mark as Read",
+      "item": [
+        {
+          "name": "Mark Single Notification as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/{{notificationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications", "{{notificationId}}", "read"]
+            },
+            "description": "Set `notificationId` variable from a previous GET response.\nReturns 404 if notification doesn't belong to the current user."
+          }
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/read-all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications", "read-all"]
+            },
+            "description": "Bulk-marks all unread notifications as read.\nReturns `updatedCount`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "🗑️ Delete",
+      "item": [
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/{{notificationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications", "{{notificationId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔔 Trigger Notifications (indirect)",
+      "item": [
+        {
+          "name": "Send Connection Request (triggers connection_request notif)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/send/:userId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "connections", "send", ":userId"],
+              "variable": [{ "key": "userId", "value": "RECEIVER_USER_ID" }]
+            },
+            "description": "Sending a connection request queues a 'connection_request' notification for the receiver."
+          }
+        },
+        {
+          "name": "Accept Connection Request (triggers connection_accepted notif)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"action\": \"accepted\" }"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/connections/respond/:requestId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "connections", "respond", ":requestId"],
+              "variable": [{ "key": "requestId", "value": "CONNECTION_REQUEST_ID" }]
+            },
+            "description": "Accepting queues a 'connection_accepted' notification for the original sender."
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚠️ Error Cases",
+      "item": [
+        {
+          "name": "Invalid Notification ID (expect 400)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/not-a-valid-id/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications", "not-a-valid-id", "read"]
+            }
+          }
+        },
+        {
+          "name": "Other user's notification (expect 404)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications/000000000000000000000001/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications", "000000000000000000000001", "read"]
+            },
+            "description": "Returns 404, not 403, to avoid leaking that the notification exists."
+          }
+        },
+        {
+          "name": "No token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "notifications"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

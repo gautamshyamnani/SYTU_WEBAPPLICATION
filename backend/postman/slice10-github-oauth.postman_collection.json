@@ -1,0 +1,155 @@
+{
+  "info": {
+    "name": "Slice 10 — GitHub OAuth + Repo Sync",
+    "_postman_id": "slice10-github-oauth",
+    "description": "Tests for GitHub OAuth login flow, repo fetching, and background sync.\n\nPRE-REQUISITE: Set these collection variables:\n  - baseUrl: http://localhost:5000\n  - accessToken: (populated by OAuth login or email/password login)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "accessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "🔗 OAuth Flow",
+      "item": [
+        {
+          "name": "1. Initiate GitHub OAuth (browser only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/github", "host": ["{{baseUrl}}"], "path": ["api", "auth", "github"] },
+            "description": "⚠️ Open this URL in a BROWSER — not Postman.\nIt sets an httpOnly CSRF cookie then redirects to GitHub.\n\nGitHub will redirect back to your callback URL after login.\nThe callback returns JSON with accessToken + refreshToken."
+          }
+        },
+        {
+          "name": "2. Callback (simulated — GitHub only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/github/callback?code=GITHUB_CODE&state=GITHUB_STATE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "github", "callback"],
+              "query": [
+                { "key": "code",  "value": "GITHUB_CODE",  "description": "Provided by GitHub — not testable manually" },
+                { "key": "state", "value": "GITHUB_STATE", "description": "Must match the state cookie set by /api/auth/github" }
+              ]
+            },
+            "description": "GitHub redirects here automatically after user approves access.\nDo NOT call this manually — the state/code will be invalid.\n\nOn success returns:\n{\n  success: true,\n  accessToken: \"...\",\n  refreshToken: \"...\",\n  user: { id, name, email, githubUsername, githubProfileUrl, ... }\n}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📊 GitHub Status",
+      "item": [
+        {
+          "name": "Get GitHub Connection Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/github/status", "host": ["{{baseUrl}}"], "path": ["api", "github", "status"] },
+            "description": "Returns:\n- connected: bool\n- githubUsername\n- githubProfileUrl\n- repoCount\n- lastSyncedAt"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📦 Repositories",
+      "item": [
+        {
+          "name": "Get Repos (from DB cache)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/github/repos?page=1&limit=20&sort=stars",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "github", "repos"],
+              "query": [
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "sort",  "value": "stars", "description": "stars | forks | updated | name" }
+              ]
+            },
+            "description": "Returns repos from the DB (fast — uses last sync)."
+          }
+        },
+        {
+          "name": "Get Repos (force fresh from GitHub)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/github/repos?fresh=true&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "github", "repos"],
+              "query": [
+                { "key": "fresh", "value": "true" },
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Forces a live fetch from GitHub API before returning.\nSlower but always up-to-date. Handles rate limits (429) and revoked tokens (401)."
+          }
+        },
+        {
+          "name": "Get Repos (filtered by language)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/github/repos?lang=JavaScript&sort=stars",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "github", "repos"],
+              "query": [
+                { "key": "lang", "value": "JavaScript" },
+                { "key": "sort", "value": "stars" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "🔄 Sync",
+      "item": [
+        {
+          "name": "Trigger Background Sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/github/sync", "host": ["{{baseUrl}}"], "path": ["api", "github", "sync"] },
+            "description": "Enqueues a BullMQ 'syncRepos' job.\nReturns 202 Accepted immediately.\n\nResponse: { success: true, message: 'Repository sync queued', jobId: '...' }\n\nCheck status via GET /api/github/status after ~5s."
+          }
+        }
+      ]
+    },
+    {
+      "name": "⚠️ Error Cases",
+      "item": [
+        {
+          "name": "No GitHub linked (expect 400)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/github/repos", "host": ["{{baseUrl}}"], "path": ["api", "github", "repos"] },
+            "description": "If user has no GitHub account linked:\n{ success: false, message: 'No GitHub account linked...' }"
+          }
+        },
+        {
+          "name": "No token — expect 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/github/repos", "host": ["{{baseUrl}}"], "path": ["api", "github", "repos"] }
+          }
+        }
+      ]
+    }
+  ]
+}

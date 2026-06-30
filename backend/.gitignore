@@ -1,0 +1,20 @@
+node_modules/
+npm-debug.log*
+
+# Environment files — never commit real secrets
+.env
+.env.*
+!.env.example
+
+# Logs (winston file transports — see src/config/logger.js)
+logs/
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Docker
+docker-compose.override.yml
