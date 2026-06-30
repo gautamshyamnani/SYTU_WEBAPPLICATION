@@ -1,5 +1,5 @@
 const { Queue } = require('bullmq');
-const { createBullMQClient } = require('../config/redis');
+const { createBullMQClient, isRedisConfigured } = require('../config/redis');
 
 /**
  * githubSyncQueue
@@ -9,22 +9,31 @@ const { createBullMQClient } = require('../config/redis');
  *
  * Job name : 'syncRepos'
  * Job data : { userId: string }
+ *
+ * If REDIS_URL isn't set, githubSyncQueue is null — callers adding jobs to
+ * this queue must check for null (see controllers that call .add directly)
+ * or route through a try/catch, same pattern as utils/queue.js.
  */
-const githubSyncQueue = new Queue('githubSync', {
-  connection: createBullMQClient(),
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 5000, // 5s → 25s → 125s
-    },
-    removeOnComplete: { count: 50 },
-    removeOnFail:     { count: 100 },
-  },
-});
+const connection = createBullMQClient();
 
-githubSyncQueue.on('error', (err) => {
-  console.error('[githubSyncQueue] Queue error:', err.message);
-});
+const githubSyncQueue = connection
+  ? new Queue('githubSync', {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 }, // 5s → 25s → 125s
+        removeOnComplete: { count: 50 },
+        removeOnFail: { count: 100 },
+      },
+    })
+  : null;
+
+if (githubSyncQueue) {
+  githubSyncQueue.on('error', (err) => {
+    console.error('[githubSyncQueue] Queue error:', err.message);
+  });
+} else if (!isRedisConfigured) {
+  console.warn('[githubSyncQueue] REDIS_URL not set — githubSync queue disabled, jobs will be skipped');
+}
 
 module.exports = { githubSyncQueue };

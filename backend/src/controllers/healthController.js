@@ -9,7 +9,7 @@ const getHealth = async (req, res) => {
   let redisOk = false;
   try {
     const redis = getRedisClient();
-    redisOk = redis.status === 'ready' || redis.status === 'connect';
+    redisOk = !!redis && (redis.status === 'ready' || redis.status === 'connect');
   } catch {
     redisOk = false;
   }

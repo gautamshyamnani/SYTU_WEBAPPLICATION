@@ -15,6 +15,10 @@ const { notificationQueue } = require('../queues/notification.queue');
  *   addEmailJob('password_reset', { email, resetLink }, { delay: 0 })
  */
 const addEmailJob = async (type, data, opts = {}) => {
+  if (!emailQueue) {
+    console.warn(`[Queue:email] Redis not configured — skipping job "${type}"`);
+    return null;
+  }
   try {
     const job = await emailQueue.add(type, data, opts);
     console.log(`[Queue:email] Added job "${type}" — id: ${job.id}`);
@@ -36,6 +40,10 @@ const addEmailJob = async (type, data, opts = {}) => {
  * @param {Object} [opts] - BullMQ job options override
  */
 const addNotificationJob = async (type, data, opts = {}) => {
+  if (!notificationQueue) {
+    console.warn(`[Queue:notification] Redis not configured — skipping job "${type}"`);
+    return null;
+  }
   try {
     const job = await notificationQueue.add(type, data, opts);
     console.log(`[Queue:notification] Added job "${type}" — id: ${job.id}`);

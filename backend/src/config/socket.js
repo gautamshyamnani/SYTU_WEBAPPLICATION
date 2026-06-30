@@ -59,9 +59,13 @@ const initSocket = (httpServer) => {
   // them with cache or BullMQ connections.
   try {
     const pubClient = createPubSubClient();
-    const subClient = pubClient.duplicate();
-    io.adapter(createAdapter(pubClient, subClient));
-    console.log('[Socket.IO] Redis adapter attached');
+    if (!pubClient) {
+      console.warn('[Socket.IO] REDIS_URL not set — running without Redis adapter (single-instance mode only)');
+    } else {
+      const subClient = pubClient.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log('[Socket.IO] Redis adapter attached');
+    }
   } catch (err) {
     // Adapter failure is non-fatal in single-instance dev environments
     console.error('[Socket.IO] Redis adapter failed — running without it:', err.message);

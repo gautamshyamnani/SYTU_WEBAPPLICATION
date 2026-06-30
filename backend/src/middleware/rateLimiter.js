@@ -60,6 +60,10 @@ const createRateLimiter = ({ windowSec = 60, max = 30, namespace = 'default' } =
       const key         = `ratelimit:${namespace}:${identifier}:${windowStart}`;
 
       const redis = getRedisClient();
+      if (!redis) {
+        // Redis not configured — fail open rather than blocking requests
+        return next();
+      }
       const count = await redis.incr(key);
       if (count === 1) {
         await redis.expire(key, windowSec);

@@ -137,6 +137,13 @@ const triggerSync = async (req, res) => {
       });
     }
 
+    if (!githubSyncQueue) {
+      return res.status(503).json({
+        success: false,
+        message: 'Background sync is temporarily unavailable (Redis not configured).',
+      });
+    }
+
     const job = await githubSyncQueue.add(
       'syncRepos',
       { userId },

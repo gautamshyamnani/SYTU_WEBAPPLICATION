@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { createBullMQClient } = require('../config/redis');
+const { createBullMQClient, isRedisConfigured } = require('../config/redis');
 const User = require('../models/User');
 const Repo = require('../models/Repo');
 const { fetchGitHubRepos, decryptToken, RateLimitError } = require('../config/github');
@@ -18,9 +18,12 @@ const { fetchGitHubRepos, decryptToken, RateLimitError } = require('../config/gi
  *   4. Upsert repos into MongoDB (idempotent)
  *   5. Handle rate limits / revoked tokens gracefully
  */
-const githubSyncWorker = new Worker(
-  'githubSync',
-  async (job) => {
+const bullConnection = createBullMQClient();
+
+const githubSyncWorker = bullConnection
+  ? new Worker(
+      'githubSync',
+      async (job) => {
     const { userId } = job.data;
 
     console.log(`[githubSync:worker] Starting sync for user ${userId} — job ${job.id}`);
@@ -109,24 +112,29 @@ const githubSyncWorker = new Worker(
       reposSynced: githubRepos.length,
       syncedAt: new Date().toISOString(),
     };
-  },
-  {
-    connection: createBullMQClient(),
-    concurrency: 5, // handle 5 sync jobs in parallel
-  }
-);
+      },
+      {
+        connection: bullConnection,
+        concurrency: 5, // handle 5 sync jobs in parallel
+      }
+    )
+  : null;
 
 // ─── Worker event hooks ───────────────────────────────────────────────────────
-githubSyncWorker.on('completed', (job, result) => {
-  console.log(`[githubSync:worker] Job ${job.id} completed:`, result);
-});
+if (githubSyncWorker) {
+  githubSyncWorker.on('completed', (job, result) => {
+    console.log(`[githubSync:worker] Job ${job.id} completed:`, result);
+  });
 
-githubSyncWorker.on('failed', (job, err) => {
-  console.error(`[githubSync:worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message);
-});
+  githubSyncWorker.on('failed', (job, err) => {
+    console.error(`[githubSync:worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}):`, err.message);
+  });
 
-githubSyncWorker.on('error', (err) => {
-  console.error('[githubSync:worker] Worker error:', err.message);
-});
+  githubSyncWorker.on('error', (err) => {
+    console.error('[githubSync:worker] Worker error:', err.message);
+  });
+} else if (!isRedisConfigured) {
+  console.warn('[githubSync:worker] REDIS_URL not set — githubSync worker not started');
+}
 
 module.exports = { githubSyncWorker };

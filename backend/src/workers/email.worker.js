@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { createBullMQClient } = require('../config/redis');
+const { createBullMQClient, isRedisConfigured } = require('../config/redis');
 
 // ─── Job handlers ─────────────────────────────────────────────────────────────
 // Each key maps a job "name" (type) to a handler function.
@@ -31,43 +31,54 @@ const handlers = {
 };
 
 // ─── Worker setup ─────────────────────────────────────────────────────────────
+// If REDIS_URL isn't set, createBullMQClient() returns null and we skip
+// starting the worker entirely instead of letting BullMQ throw on a null
+// connection.
 
-const emailWorker = new Worker(
-  'email',
-  async (job) => {
-    console.log(`[EmailWorker] Processing job "${job.name}" (id: ${job.id})`);
+const bullConnection = createBullMQClient();
 
-    const handler = handlers[job.name];
-    if (!handler) {
-      // Unknown job type — log and skip rather than crashing the worker
-      console.warn(`[EmailWorker] No handler for job type "${job.name}" — skipping`);
-      return;
-    }
+const emailWorker = bullConnection
+  ? new Worker(
+      'email',
+      async (job) => {
+        console.log(`[EmailWorker] Processing job "${job.name}" (id: ${job.id})`);
 
-    await handler(job);
-    console.log(`[EmailWorker] ✓ Completed job "${job.name}" (id: ${job.id})`);
-  },
-  {
-    connection: createBullMQClient(),
-    concurrency: 5, // process up to 5 email jobs in parallel
-  }
-);
+        const handler = handlers[job.name];
+        if (!handler) {
+          // Unknown job type — log and skip rather than crashing the worker
+          console.warn(`[EmailWorker] No handler for job type "${job.name}" — skipping`);
+          return;
+        }
+
+        await handler(job);
+        console.log(`[EmailWorker] ✓ Completed job "${job.name}" (id: ${job.id})`);
+      },
+      {
+        connection: bullConnection,
+        concurrency: 5, // process up to 5 email jobs in parallel
+      }
+    )
+  : null;
 
 // ─── Worker event hooks ────────────────────────────────────────────────────────
 
-emailWorker.on('completed', (job) => {
-  console.log(`[EmailWorker] Job completed — name: "${job.name}", id: ${job.id}`);
-});
+if (emailWorker) {
+  emailWorker.on('completed', (job) => {
+    console.log(`[EmailWorker] Job completed — name: "${job.name}", id: ${job.id}`);
+  });
 
-emailWorker.on('failed', (job, err) => {
-  console.error(
-    `[EmailWorker] Job FAILED — name: "${job?.name}", id: ${job?.id}, ` +
-    `attempt: ${job?.attemptsMade}/${job?.opts?.attempts ?? '?'} — ${err.message}`
-  );
-});
+  emailWorker.on('failed', (job, err) => {
+    console.error(
+      `[EmailWorker] Job FAILED — name: "${job?.name}", id: ${job?.id}, ` +
+      `attempt: ${job?.attemptsMade}/${job?.opts?.attempts ?? '?'} — ${err.message}`
+    );
+  });
 
-emailWorker.on('error', (err) => {
-  console.error('[EmailWorker] Worker error:', err.message);
-});
+  emailWorker.on('error', (err) => {
+    console.error('[EmailWorker] Worker error:', err.message);
+  });
+} else if (!isRedisConfigured) {
+  console.warn('[EmailWorker] REDIS_URL not set — email worker not started');
+}
 
 module.exports = { emailWorker };

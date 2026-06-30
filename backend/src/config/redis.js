@@ -1,22 +1,34 @@
 const Redis = require('ioredis');
 
-// ─── Shared Redis options ────────────────────────────────────────────────────
+// ─── Shared Redis client factory ─────────────────────────────────────────────
 // Used by: cache helpers, Socket.IO adapter, BullMQ queues/workers.
-// BullMQ requires maxRetriesPerRequest: null (it manages its own retry logic).
+//
+// ROOT CAUSE OF "ECONNREFUSED 127.0.0.1:6379" ON RENDER:
+// A previous version of this file fell back to host/port localhost defaults
+// when REDIS_URL was missing. That fallback has been removed entirely.
+// This file now ONLY reads REDIS_URL. There is NO localhost/127.0.0.1
+// default anywhere in this codebase anymore.
+//
+// REDIS_URL must be a full connection string, e.g.:
+//   redis://default:<password>@<host>:<port>          (no TLS)
+//   rediss://default:<password>@<host>:<port>          (TLS — most managed Redis)
+//
+// If REDIS_URL is not set, Redis is treated as OPTIONAL: every factory below
+// returns null instead of throwing, and callers (cache.js, queues, workers,
+// socket.js) are responsible for handling a null connection gracefully so
+// the app never crashes just because Redis is unavailable.
 
-// REDIS_URL (e.g. redis://:password@host:port or rediss://... for TLS) is
-// what Render's managed Redis / Upstash / Redis Cloud give you. Render
-// containers cannot reach 127.0.0.1 for Redis — that's the app container's
-// own loopback, not the Redis service — so REDIS_URL must take priority.
 const REDIS_URL = process.env.REDIS_URL;
+const isRedisConfigured = Boolean(REDIS_URL);
 
-const baseOptions = REDIS_URL
-  ? {}
-  : {
-      host: process.env.REDIS_HOST || '127.0.0.1',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD || undefined,
-    };
+if (!isRedisConfigured) {
+  console.warn(
+    '[Redis] REDIS_URL is not set — Redis is disabled. ' +
+    'Cache, rate-limit-by-Redis, BullMQ queues/workers, and the Socket.IO ' +
+    'Redis adapter will all no-op instead of connecting. ' +
+    'Set REDIS_URL in Render → Environment to enable them.'
+  );
+}
 
 const retryStrategy = (times) => {
   if (times > 5) {
@@ -26,42 +38,6 @@ const retryStrategy = (times) => {
   return Math.min(times * 200, 2000); // exponential back-off up to 2 s
 };
 
-const makeClient = (extraOptions) =>
-  REDIS_URL
-    ? new Redis(REDIS_URL, { retryStrategy, ...extraOptions })
-    : new Redis({ ...baseOptions, retryStrategy, ...extraOptions });
-
-// ─── Cache client (singleton) ────────────────────────────────────────────────
-// Used by get/set/delete cache helpers. maxRetriesPerRequest: 3 so a
-// Redis outage fails fast and falls back to DB.
-let cacheClient = null;
-
-const getRedisClient = () => {
-  if (cacheClient) return cacheClient;
-  cacheClient = makeClient({ maxRetriesPerRequest: 3 });
-  attachLogs(cacheClient, 'Cache');
-  return cacheClient;
-};
-
-// ─── BullMQ client factory ───────────────────────────────────────────────────
-// BullMQ mandates maxRetriesPerRequest: null (it handles blocking commands
-// like XREAD internally). Call this to get a fresh client per queue/worker.
-const createBullMQClient = () => {
-  const client = makeClient({ maxRetriesPerRequest: null });
-  attachLogs(client, 'BullMQ');
-  return client;
-};
-
-// ─── Pub/Sub client factory (Socket.IO Redis adapter) ───────────────────────
-// The adapter needs two dedicated connections — one for publish, one for
-// subscribe — so we always create new instances here (no singleton).
-const createPubSubClient = () => {
-  const client = makeClient({ maxRetriesPerRequest: 3 });
-  attachLogs(client, 'PubSub');
-  return client;
-};
-
-// ─── Internal helper ─────────────────────────────────────────────────────────
 const attachLogs = (client, label) => {
   client.on('connect', () => console.log(`[Redis:${label}] Connected`));
   client.on('ready',   () => console.log(`[Redis:${label}] Ready`));
@@ -69,4 +45,40 @@ const attachLogs = (client, label) => {
   client.on('close',   () => console.warn(`[Redis:${label}] Connection closed`));
 };
 
-module.exports = { getRedisClient, createBullMQClient, createPubSubClient };
+// Creates a new ioredis client from REDIS_URL, or returns null if Redis
+// isn't configured. No host/port/localhost path exists here at all.
+const makeClient = (extraOptions, label) => {
+  if (!isRedisConfigured) return null;
+  const client = new Redis(REDIS_URL, { retryStrategy, ...extraOptions });
+  attachLogs(client, label);
+  return client;
+};
+
+// ─── Cache client (singleton) ────────────────────────────────────────────────
+// maxRetriesPerRequest: 3 so a Redis outage fails fast and callers fall back
+// to the database instead of hanging.
+let cacheClient;
+let cacheClientInitialized = false;
+
+const getRedisClient = () => {
+  if (cacheClientInitialized) return cacheClient;
+  cacheClientInitialized = true;
+  cacheClient = makeClient({ maxRetriesPerRequest: 3 }, 'Cache');
+  return cacheClient; // may be null if Redis isn't configured
+};
+
+// ─── BullMQ client factory ───────────────────────────────────────────────────
+// BullMQ MANDATES maxRetriesPerRequest: null — it manages blocking commands
+// (e.g. BZPOPMIN) and retry logic itself. A fresh client per queue/worker.
+const createBullMQClient = () => makeClient({ maxRetriesPerRequest: null }, 'BullMQ');
+
+// ─── Pub/Sub client factory (Socket.IO Redis adapter) ───────────────────────
+// Needs two dedicated connections (pub + sub) — never share with cache/BullMQ.
+const createPubSubClient = () => makeClient({ maxRetriesPerRequest: 3 }, 'PubSub');
+
+module.exports = {
+  getRedisClient,
+  createBullMQClient,
+  createPubSubClient,
+  isRedisConfigured,
+};

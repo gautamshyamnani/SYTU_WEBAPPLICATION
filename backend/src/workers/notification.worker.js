@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const { createBullMQClient } = require('../config/redis');
+const { createBullMQClient, isRedisConfigured } = require('../config/redis');
 const Notification = require('../models/Notification');
 const { getSocketId } = require('../utils/presenceStore');
 
@@ -106,41 +106,51 @@ const processNotification = async (job) => {
 };
 
 // ─── Worker setup ─────────────────────────────────────────────────────────────
+// If REDIS_URL isn't set, createBullMQClient() returns null — skip starting
+// this worker instead of letting BullMQ throw on a null connection.
 
-const notificationWorker = new Worker(
-  'notification',
-  async (job) => {
-    console.log(
-      `[NotificationWorker] Processing job "${job.name}" (id: ${job.id}) ` +
-      `for user: ${job.data.userId}`
-    );
-    return processNotification(job);
-  },
-  {
-    connection: createBullMQClient(),
-    concurrency: 20, // notifications are lightweight DB writes + socket emits
-  }
-);
+const bullConnection = createBullMQClient();
+
+const notificationWorker = bullConnection
+  ? new Worker(
+      'notification',
+      async (job) => {
+        console.log(
+          `[NotificationWorker] Processing job "${job.name}" (id: ${job.id}) ` +
+          `for user: ${job.data.userId}`
+        );
+        return processNotification(job);
+      },
+      {
+        connection: bullConnection,
+        concurrency: 20, // notifications are lightweight DB writes + socket emits
+      }
+    )
+  : null;
 
 // ─── Worker lifecycle hooks ───────────────────────────────────────────────────
 
-notificationWorker.on('completed', (job, result) => {
-  console.log(
-    `[NotificationWorker] ✓ Job "${job.name}" (${job.id}) completed:`,
-    result
-  );
-});
+if (notificationWorker) {
+  notificationWorker.on('completed', (job, result) => {
+    console.log(
+      `[NotificationWorker] ✓ Job "${job.name}" (${job.id}) completed:`,
+      result
+    );
+  });
 
-notificationWorker.on('failed', (job, err) => {
-  console.error(
-    `[NotificationWorker] ✗ Job "${job?.name}" (${job?.id}) failed ` +
-    `(attempt ${job?.attemptsMade}/${job?.opts?.attempts ?? '?'}):`,
-    err.message
-  );
-});
+  notificationWorker.on('failed', (job, err) => {
+    console.error(
+      `[NotificationWorker] ✗ Job "${job?.name}" (${job?.id}) failed ` +
+      `(attempt ${job?.attemptsMade}/${job?.opts?.attempts ?? '?'}):`,
+      err.message
+    );
+  });
 
-notificationWorker.on('error', (err) => {
-  console.error('[NotificationWorker] Worker error:', err.message);
-});
+  notificationWorker.on('error', (err) => {
+    console.error('[NotificationWorker] Worker error:', err.message);
+  });
+} else if (!isRedisConfigured) {
+  console.warn('[NotificationWorker] REDIS_URL not set — notification worker not started');
+}
 
 module.exports = { notificationWorker };

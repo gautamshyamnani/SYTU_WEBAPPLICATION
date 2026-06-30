@@ -10,11 +10,14 @@ const cacheKey = (namespace, ...parts) => `${namespace}:${parts.join(':')}`;
 
 /**
  * Read a value from Redis.
- * Returns the parsed value on HIT, null on MISS or Redis failure.
+ * Returns the parsed value on HIT, null on MISS, Redis failure, or when
+ * Redis isn't configured at all (REDIS_URL unset).
  */
 const getCache = async (key) => {
+  const client = getRedisClient();
+  if (!client) return null; // Redis disabled — treat every read as a miss
   try {
-    const raw = await getRedisClient().get(key);
+    const raw = await client.get(key);
     if (raw === null) return null;
     return JSON.parse(raw);
   } catch (err) {
@@ -25,11 +28,14 @@ const getCache = async (key) => {
 
 /**
  * Write a value to Redis with a TTL (default 60 s).
- * Silently swallowed on Redis failure — the response still goes out.
+ * Silently no-ops if Redis isn't configured or unreachable — the response
+ * still goes out either way.
  */
 const setCache = async (key, value, ttl = DEFAULT_TTL) => {
+  const client = getRedisClient();
+  if (!client) return;
   try {
-    await getRedisClient().set(key, JSON.stringify(value), 'EX', ttl);
+    await client.set(key, JSON.stringify(value), 'EX', ttl);
   } catch (err) {
     console.error(`[Cache] SET failed for "${key}":`, err.message);
   }
@@ -37,12 +43,14 @@ const setCache = async (key, value, ttl = DEFAULT_TTL) => {
 
 /**
  * Delete one or more keys from Redis.
- * Silently swallowed on Redis failure.
+ * Silently no-ops if Redis isn't configured or unreachable.
  */
 const deleteCache = async (...keys) => {
   if (!keys.length) return;
+  const client = getRedisClient();
+  if (!client) return;
   try {
-    await getRedisClient().del(...keys);
+    await client.del(...keys);
   } catch (err) {
     console.error(`[Cache] DEL failed for [${keys.join(', ')}]:`, err.message);
   }
